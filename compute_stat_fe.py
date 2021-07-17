@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     # 转csr矩阵形式进行处理
     # -------------------------
-    feat_name_list = ['gender', 'province', 'city', 'model', 'make']
+    feat_name_list = ['gender']
     for feat_name in feat_name_list:
         encoder = OneHotEncoder()
         tmp_sp_mat = encoder.fit_transform(

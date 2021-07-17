@@ -40,15 +40,15 @@ sns.set(style='ticks', font_scale=1.2, palette='deep', color_codes=True)
 def njit_compute_stat_feats(input_array=None):
     '''计算输入的array的一系列统计特征'''
     if len(input_array) == 1:
-        return np.zeros((1, 5))
-    stat_feats = np.zeros((1, 5))
+        return np.zeros((1, 2))
+    stat_feats = np.zeros((1, 2))
 
     time_diff_array = input_array[1:] - input_array[:-1]
     stat_feats[0, 0] = np.mean(time_diff_array)
     stat_feats[0, 1] = np.std(time_diff_array)
-    stat_feats[0, 2] = np.min(time_diff_array)
-    stat_feats[0, 3] = np.max(time_diff_array)
-    stat_feats[0, 4] = np.median(time_diff_array)
+    # stat_feats[0, 2] = np.min(time_diff_array)
+    # stat_feats[0, 3] = np.max(time_diff_array)
+    # stat_feats[0, 4] = np.median(time_diff_array)
 
     return stat_feats
 
@@ -197,8 +197,10 @@ def compute_embedding(corpus, word2vec, embedding_size):
 
 
 if __name__ == '__main__':
-    CBOW_MODEL_NAME = 'cbow_model'
+    CBOW_MODEL_NAME = ''
+    SG_MODEL_NAME = ''
     EMBEDDING_DIM = 128
+    TFIDF_DIM = 150
 
     # 读入原始的训练与测试数据
     # -------------------------
@@ -228,7 +230,7 @@ if __name__ == '__main__':
         total_targid_list[i] = [str(item) for item in total_targid_list[i]]
         total_targid_list[i] = ' '.join(total_targid_list[i])
     tmp_feat_sp_array, encoder = compute_tfidf_feats(
-        total_targid_list, max_feats=512)
+        total_targid_list, max_feats=TFIDF_DIM)
     total_feat_mat = hstack([total_feat_mat, tmp_feat_sp_array]).tocsr()
 
     # word2vec embedding
@@ -238,22 +240,40 @@ if __name__ == '__main__':
 
     if CBOW_MODEL_NAME:
         file_processor = LoadSave(dir_name='./pretraining_models/')
-        cbow_model = file_processor.load_data(file_name=CBOW_MODEL_NAME+'.pkl')
+        cbow_model = file_processor.load_data(
+            file_name=CBOW_MODEL_NAME+'.pkl')
     else:
         cbow_model = compute_cbow_embedding(
             corpus=total_targid_list, negative=20,
-            min_count=2, window=128,
+            min_count=2, window=5,
+            vector_size=EMBEDDING_DIM, epochs=30)
+
+    if SG_MODEL_NAME:
+        file_processor = LoadSave(dir_name='./pretraining_models/')
+        sg_model = file_processor.load_data(
+            file_name=SG_MODEL_NAME+'.pkl')
+    else:
+        sg_model = compute_sg_embedding(
+            corpus=total_targid_list, negative=20,
+            min_count=2, window=5,
             vector_size=EMBEDDING_DIM, epochs=30)
 
     # 计算句子向量
+    # *****************
     cbow_embedding_mat = compute_embedding(
         total_targid_list, cbow_model.wv, EMBEDDING_DIM)
     cbow_embedding_mat = csr_matrix(cbow_embedding_mat)
 
+    sg_embedding_mat = compute_embedding(
+        total_targid_list, sg_model.wv, EMBEDDING_DIM)
+    sg_embedding_mat = csr_matrix(sg_embedding_mat)
+
     # Spare matrix
-    total_feat_mat = hstack([total_feat_mat, cbow_embedding_mat]).tocsr()
+    total_feat_mat = hstack(
+        [total_feat_mat, cbow_embedding_mat, sg_embedding_mat]).tocsr()
 
     # 存储Embedding特征工程结果
     # -------------------------
+    file_processor = LoadSave(dir_name='./cached_data/')
     file_processor.save_data(
         file_name='total_sp_embedding_mat.pkl', data_file=total_feat_mat)
