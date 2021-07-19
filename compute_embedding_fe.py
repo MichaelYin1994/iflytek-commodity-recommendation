@@ -26,7 +26,7 @@ from gensim.models import FastText, word2vec
 from gensim.models.callbacks import CallbackAny2Vec
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from utils import LoadSave
+from utils import LoadSave, GensimCallback
 
 # 设定全局随机种子，并且屏蔽warnings
 GLOBAL_RANDOM_SEED = 2022
@@ -57,49 +57,6 @@ def comput_list_stat_feats(input_list=None):
     '''接口方法，将input_list转为array'''
     array_list = np.array(input_list)
     return njit_compute_stat_feats(array_list)
-
-
-class GensimCallback(CallbackAny2Vec):
-    '''计算每一个Epoch的词向量训练损失的回调函数。
-
-    @Attributes:
-    ----------
-    epoch: {int-like}
-    	当前的训练的epoch数目。
-    verbose_round: {int-like}
-    	每隔verbose_round轮次打印一次日志。
-	loss: {list-like}
-		保存每个epoch的Loss的数组。
-
-    @References:
-    ----------
-    [1] https://stackoverflow.com/questions/54888490/gensim-word2vec-print-log-loss
-    '''
-    def __init__(self, verbose_round=3):
-        self.epoch = 0
-        self.loss = []
-
-        if verbose_round == 0:
-            verbose_round = 1
-        self.verbose_round = verbose_round
-
-    def on_epoch_end(self, model):
-        '''在每个epoch结束的时候计算模型的Loss并且打印'''
-
-        # 获取该轮的Loss值
-        loss = model.get_latest_training_loss()
-        self.loss.append(loss)
-
-        if len(self.loss) == 1:
-            pass
-        else:
-            loss_decreasing_precent = \
-                (loss - self.loss[-2]) / self.loss[-2] * 100
-
-            if divmod(self.epoch, self.verbose_round)[1] == 0:
-                print('[{}]: word2vec loss: {:.2f}, decreasing {:.4f}%.'.format(
-                    self.epoch, loss, loss_decreasing_precent))
-        self.epoch += 1
 
 
 def compute_sg_embedding(corpus=None, is_save_model=True,
@@ -197,7 +154,7 @@ def compute_embedding(corpus, word2vec, embedding_size):
 
 
 if __name__ == '__main__':
-    CBOW_MODEL_NAME = ''
+    CBOW_MODEL_NAME = 'cbow_model'
     SG_MODEL_NAME = ''
     EMBEDDING_DIM = 128
     TFIDF_DIM = 150
@@ -256,7 +213,7 @@ if __name__ == '__main__':
         sg_model = compute_sg_embedding(
             corpus=total_targid_list, negative=20,
             min_count=2, window=5,
-            vector_size=EMBEDDING_DIM, epochs=30)
+            vector_size=EMBEDDING_DIM, epochs=15)
 
     # 计算句子向量
     # *****************

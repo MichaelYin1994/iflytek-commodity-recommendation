@@ -19,12 +19,54 @@ import pandas as pd
 import tensorflow as tf
 from numba import njit
 from tqdm import tqdm
+from gensim.models.callbacks import CallbackAny2Vec
 
 warnings.filterwarnings('ignore')
 ###############################################################################
 
-# 全局变量：观测窗口时间
-INTERVAL_SECONDS = int(np.ceil(0.5 * 60))
+
+class GensimCallback(CallbackAny2Vec):
+    '''计算每一个Epoch的词向量训练损失的回调函数。
+
+    @Attributes:
+    ----------
+    epoch: {int-like}
+    	当前的训练的epoch数目。
+    verbose_round: {int-like}
+    	每隔verbose_round轮次打印一次日志。
+	loss: {list-like}
+		保存每个epoch的Loss的数组。
+
+    @References:
+    ----------
+    [1] https://stackoverflow.com/questions/54888490/gensim-word2vec-print-log-loss
+    '''
+    def __init__(self, verbose_round=3):
+        self.epoch = 0
+        self.loss = []
+
+        if verbose_round == 0:
+            verbose_round = 1
+        self.verbose_round = verbose_round
+
+    def on_epoch_end(self, model):
+        '''在每个epoch结束的时候计算模型的Loss并且打印'''
+
+        # 获取该轮的Loss值
+        loss = model.get_latest_training_loss()
+        self.loss.append(loss)
+
+        if len(self.loss) == 1:
+            pass
+        else:
+            loss_decreasing_precent = \
+                (loss - self.loss[-2]) / self.loss[-2] * 100
+
+            if divmod(self.epoch, self.verbose_round)[1] == 0:
+                print('[{}]: word2vec loss: {:.2f}, decreasing {:.4f}%.'.format(
+                    self.epoch, loss, loss_decreasing_precent))
+        self.epoch += 1
+
 
 class LoadSave():
     '''以*.pkl格式，利用pickle包存储各种形式（*.npz, list etc.）的数据。
