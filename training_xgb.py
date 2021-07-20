@@ -124,31 +124,32 @@ def xgb_clf_training_sparse(train_sp=None,
 
         valid_f1 = f1_score(
             t_valid.reshape((-1, 1)), valid_pred_label, average='macro')
-        valid_acc = accuracy_score(
-            t_valid.reshape((-1, 1)), valid_pred_label)
+        valid_auc = roc_auc_score(
+            t_valid.reshape((-1, 1)), valid_pred_proba[:, 1].reshape((-1, 1)))
 
         scores[fold, 0] = fold
-        scores[fold, 1], scores[fold, 2] = valid_f1, valid_acc
+        scores[fold, 1], scores[fold, 2] = valid_f1, valid_auc
         scores[fold, 3] = clf.best_iteration
 
-        print('-- {} folds {}({}), valid f1: {:.5f}, acc: {:.5f}'.format(
-            str(datetime.now())[:-4], fold+1, n_folds, valid_f1, valid_acc))
+        print('-- {} folds {}({}), valid f1: {:.5f}, auc: {:.5f}'.format(
+            str(datetime.now())[:-4], fold+1, n_folds, valid_f1, valid_auc))
         params['random_state'] = params['random_state'] + 10086
 
     oof_pred_label = np.argmax(oof_pred, axis=1).reshape((-1, 1))
     total_f1 = f1_score(
         train_targets.reshape((-1, 1)),
         oof_pred_label.reshape((-1, 1)), average='macro')
-    total_acc = accuracy_score(
-        train_targets.reshape((-1, 1)), oof_pred_label.reshape((-1, 1)))
-    print('-- total valid f1: {:.5f}, acc: {:.5f}'.format(
-        total_f1, total_acc))
+    total_auc = roc_auc_score(
+        train_targets.reshape((-1, 1)),
+        oof_pred[:, 1].reshape((-1, 1)))
+    print('-- total valid f1: {:.5f}, auc: {:.5f}'.format(
+        total_f1, total_auc))
     print('==================================')
     print('[INFO] {} XGBoost training end(CSR)...'.format(
         str(datetime.now())[:-4]))
 
     scores = pd.DataFrame(
-        scores, columns=['folds', 'valid_f1', 'valid_acc', 'best_iters'])
+        scores, columns=['folds', 'valid_f1', 'valid_roc_auc', 'best_iters'])
     y_pred = pd.DataFrame(
         y_pred, columns=['y_pred_{}'.format(i) for i in range(n_classes)])
     oof_pred = pd.DataFrame(
@@ -222,11 +223,11 @@ if __name__ == '__main__':
 
     # 保存预测的结果
     # -------------------------
-    sub_file_name = '{}_nfolds_{}_valf1_{}_valacc_{}'.format(
+    sub_file_name = '{}_xgb_nfolds_{}_valroc_auc_{}_valf1_{}'.format(
         len(os.listdir('./submissions/')) + 1,
         N_FOLDS,
-        str(np.round(val_scores_df['valid_f1'].mean(), 5))[2:],
-        str(np.round(val_scores_df['valid_acc'].mean(), 5))[2:])
+        str(np.round(val_scores_df['valid_roc_auc'].mean(), 5))[2:],
+        str(np.round(val_scores_df['valid_f1'].mean(), 5))[2:])
 
     test_sub_df = test_df.copy()
     test_sub_df.rename(

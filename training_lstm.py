@@ -269,14 +269,14 @@ if __name__ == '__main__':
     IS_DEBUG = False
 
     MAX_VOCAB_SIZE = 110000
-    MAX_SENTENCE_LENGTH = 800
+    MAX_SENTENCE_LENGTH = 350
 
     N_FOLDS = 5
-    MODEL_LR = 0.0005
+    MODEL_LR = 0.0007
     N_EPOCHS = 256
-    BATCH_SIZE = 128
+    BATCH_SIZE = 256
     EARLY_STOP_ROUNDS = 10
-    IS_SEND_TO_DINGTALK = True
+    IS_SEND_TO_DINGTALK = False
     MODEL_NAME = 'LSTM_quadro_p5000'
 
     IS_TRAIN_FROM_CKPT = False
@@ -381,10 +381,10 @@ if __name__ == '__main__':
     remote_monitor = RemoteMonitorDingTalk(
         is_send_msg=IS_SEND_TO_DINGTALK, model_name=MODEL_NAME)
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_auc',
-                factor=0.7,
-                patience=3,
-                min_lr=0.000003)
+        monitor='val_auc',
+        factor=0.7,
+        patience=3,
+        min_lr=0.000003)
 
     # Training the NN Classifier
     # --------------------------------
