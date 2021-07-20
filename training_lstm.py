@@ -266,7 +266,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 if __name__ == '__main__':
     # 全局化的参数
     # ---------------------
-    IS_DEBUG = False
+    IS_DEBUG = True
 
     MAX_VOCAB_SIZE = 110000
     MAX_SENTENCE_LENGTH = 350
@@ -419,13 +419,14 @@ if __name__ == '__main__':
         if ckpt_fold_name_tmp not in os.listdir(CKPT_DIR):
             os.mkdir(CKPT_DIR + ckpt_fold_name_tmp)
 
-        # 如果指定ckpt weights文件名，则从ckpt位置开始训练
-        if IS_TRAIN_FROM_CKPT:
-            latest_ckpt = tf.train.latest_checkpoint(CKPT_DIR + ckpt_fold_name_tmp)
-            model.load_weights(latest_ckpt)
-        else:
-            ckpt_file_name_list = os.listdir(CKPT_DIR + ckpt_fold_name_tmp)
+        # 如果指定ckpt weights文件名，则从ckpt位s置开始训练
+        ckpt_file_name_list = os.listdir(CKPT_DIR + ckpt_fold_name_tmp)
 
+        if IS_TRAIN_FROM_CKPT:
+            if len(ckpt_file_name_list) != 0:
+                latest_ckpt = tf.train.latest_checkpoint(CKPT_DIR + ckpt_fold_name_tmp)
+                model.load_weights(latest_ckpt)
+        else:
             # https://www.geeksforgeeks.org/python-os-remove-method/
             try:
                 for file_name in ckpt_file_name_list:
