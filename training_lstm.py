@@ -187,6 +187,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # --------------------------------
     vocab_size = kwargs.pop('vocab_size')
     embedding_size = kwargs.pop('embedding_size')
+    feat_dim = kwargs.pop('feat_dim', 128)
     max_length = kwargs.pop('max_length')
     embedding_weights = kwargs.pop('embedding_weights')
     model_lr = kwargs.pop('model_lr', 0.0001)
@@ -194,7 +195,13 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # 构造模型
     # --------------------------------
     # 构建输入层
-    layer_input = Input(shape=(max_length, ))
+    layer_input_seq = Input(shape=(max_length, ))
+    layer_input_dense_feats = Input(shape=(feat_dim, ))
+
+    # Dense feature transformation
+    layer_dense_feats = BatchNormalization()(layer_input_dense_feats)
+    layer_dense_feats = Dense(64, activation='relu')(layer_dense_feats)
+    layer_dense_feats = Dropout(0.5)(layer_dense_feats)
 
     # Shared pre-training embedding layer
     layer_shared_embedding = Embedding(
@@ -206,7 +213,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
         trainable=False)
 
     # embedding encoding layer
-    layer_encoding_embedding = layer_shared_embedding(layer_input)
+    layer_encoding_embedding = layer_shared_embedding(layer_input_seq)
 
     # GRU encoding layer 0
     layer_gru_encoding_0 = Bidirectional(GRU(
@@ -233,11 +240,12 @@ def build_model(verbose=False, is_compile=True, **kwargs):
         [layer_encoding_embedding, layer_encoding])
 
     # 组合，构建分类层
-    layer_feat_x = concatenate(
+    layer_feat_concat = concatenate(
         [GlobalAveragePooling1D()(layer_encoding_concat),
-         GlobalMaxPooling1D()(layer_encoding_concat)])
+         GlobalMaxPooling1D()(layer_encoding_concat),
+         layer_dense_feats])
 
-    layer_total_feat = BatchNormalization()(layer_feat_x)
+    layer_total_feat = BatchNormalization()(layer_feat_concat)
     layer_total_feat = Dropout(0.5)(layer_total_feat)
     layer_total_feat = Dense(128, activation='relu')(layer_total_feat)
 
@@ -249,7 +257,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # 编译模型
     # --------------------------------
     model = Model(
-        [layer_input], layer_output)
+        [layer_input_seq, layer_input_dense_feats], layer_output)
 
     if verbose:
         model.summary()
@@ -277,7 +285,7 @@ if __name__ == '__main__':
     BATCH_SIZE = 256
     EARLY_STOP_ROUNDS = 10
     IS_SEND_TO_DINGTALK = False
-    MODEL_NAME = 'LSTM_quadro_p5000'
+    MODEL_NAME = 'lstm_rtx3090'
 
     IS_TRAIN_FROM_CKPT = False
     CKPT_DIR = './ckpt/'
@@ -342,6 +350,9 @@ if __name__ == '__main__':
     train_corpus = [total_targid_list[i] for i in train_idx]
     test_corpus = [total_targid_list[i] for i in test_idx]
 
+    train_feats = total_feats[train_idx].todense()
+    test_feats = total_feats[test_idx].todense()
+
     # 构造pre-training embedding matrix与编码语料
     # ---------------------
     train_corpus_encoded, test_corpus_encoded, embedding_meta_dict = \
@@ -383,7 +394,7 @@ if __name__ == '__main__':
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_auc',
         factor=0.7,
-        patience=3,
+        patience=6,
         min_lr=0.000003)
 
     # Training the NN Classifier
@@ -400,6 +411,7 @@ if __name__ == '__main__':
 
         # 划分训练与验证数据
         d_train, d_valid = train_corpus_encoded[tra_id], train_corpus_encoded[val_id]
+        d_train_feats, d_valid_feats = train_feats[tra_id], train_feats[val_id]
         t_train, t_valid = train_target_oht[tra_id], train_target_oht[val_id]
 
         # 构造与编译模型
@@ -409,6 +421,7 @@ if __name__ == '__main__':
             embedding_size=embedding_meta_dict['embedding_size'],
             max_length=embedding_meta_dict['max_len'],
             embedding_weights=embedding_meta_dict['embedding_mat'],
+            feat_dim=d_train_feats.shape[1],
             model_lr=MODEL_LR)
 
         # 完善ckpt保存机制
@@ -446,12 +459,12 @@ if __name__ == '__main__':
         # fitting模型
         # ***********
         history = model.fit(
-            x=[d_train], y=t_train,
+            x=[d_train, d_train_feats], y=t_train,
             batch_size=BATCH_SIZE,
             epochs=N_EPOCHS,
             shuffle=False,
             use_multiprocessing=True,
-            validation_data=([d_valid], t_valid),
+            validation_data=([d_valid, d_valid_feats], t_valid),
             callbacks=[early_stop, remote_monitor, reduce_lr, ckpt_saver])
 
         # 构造验证与测试数据预测的结果

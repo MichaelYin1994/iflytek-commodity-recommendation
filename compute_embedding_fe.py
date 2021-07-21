@@ -46,9 +46,9 @@ def njit_compute_stat_feats(input_array=None):
     time_diff_array = input_array[1:] - input_array[:-1]
     stat_feats[0, 0] = np.mean(time_diff_array)
     stat_feats[0, 1] = np.std(time_diff_array)
-    # stat_feats[0, 2] = np.min(time_diff_array)
-    # stat_feats[0, 3] = np.max(time_diff_array)
-    # stat_feats[0, 4] = np.median(time_diff_array)
+    stat_feats[0, 2] = np.min(time_diff_array)
+    stat_feats[0, 3] = np.max(time_diff_array)
+    stat_feats[0, 4] = np.median(time_diff_array)
 
     return stat_feats
 
@@ -155,9 +155,9 @@ def compute_embedding(corpus, word2vec, embedding_size):
 
 if __name__ == '__main__':
     CBOW_MODEL_NAME = 'cbow_model'
-    SG_MODEL_NAME = ''
+    SG_MODEL_NAME = 'skip_gram_model'
     EMBEDDING_DIM = 128
-    TFIDF_DIM = 150
+    TFIDF_DIM = 200
 
     # 读入原始的训练与测试数据
     # -------------------------
@@ -225,9 +225,9 @@ if __name__ == '__main__':
         total_targid_list, sg_model.wv, EMBEDDING_DIM)
     sg_embedding_mat = csr_matrix(sg_embedding_mat)
 
-    # Spare matrix
-    total_feat_mat = hstack(
-        [total_feat_mat, cbow_embedding_mat, sg_embedding_mat]).tocsr()
+    # # Spare matrix
+    # total_feat_mat = hstack(
+    #     [total_feat_mat, cbow_embedding_mat, sg_embedding_mat]).tocsr()
 
     # 存储Embedding特征工程结果
     # -------------------------
