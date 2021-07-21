@@ -525,7 +525,7 @@ if __name__ == '__main__':
         str(np.round(val_scores_df['valid_roc_auc'].mean(), 5))[2:],
         str(np.round(val_scores_df['valid_f1'].mean(), 5))[2:])
 
-    test_sub_df = test_df.copy()
+    test_sub_df = test_df.copy()[['pid', 'label']]
     test_sub_df.rename(
         {'pid': 'user_id', 'label': 'category_id'}, axis=1, inplace=True)
     test_sub_df['category_id'] = np.argmax(
