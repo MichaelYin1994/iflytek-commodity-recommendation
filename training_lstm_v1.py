@@ -1,12 +1,12 @@
 #!/usr/local/bin python
 # -*- coding: utf-8 -*-
 
-# Created on 202107191059
+# Created on 202107220155
 # Author:     zhuoyin94 <zhuoyin94@163.com>
 # Github:     https://github.com/MichaelYin1994
 
 '''
-本模块(training_lstm.py)借助预训练的词向量，采用LSTM训练模型。
+本模块(training_lstm_v1.py)采用序列形式，注入Meta-info。
 '''
 
 import gc
@@ -185,17 +185,16 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     '''构造Enhanced LSTM模型。'''
     # 基础参数
     # --------------------------------
-    vocab_size = kwargs.pop('vocab_size')
-    embedding_size = kwargs.pop('embedding_size')
+    embedding_meta = kwargs.pop('embedding_meta', None)
+    embedding_meta_dist = kwargs.pop('embedding_meta_dist', None)
     feat_dim = kwargs.pop('feat_dim', 128)
-    max_length = kwargs.pop('max_length')
-    embedding_weights = kwargs.pop('embedding_weights')
     model_lr = kwargs.pop('model_lr', 0.0001)
 
     # 构造模型
     # --------------------------------
     # 构建输入层
-    layer_input_seq = Input(shape=(max_length, ))
+    # ***********
+    layer_input_seq = Input(shape=(embedding_meta['max_len'], ))
     layer_input_dense_feats = Input(shape=(feat_dim, ))
 
     # Dense feature transformation
@@ -205,17 +204,30 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 
     # Shared pre-training embedding layer
     layer_shared_embedding = Embedding(
-        vocab_size+1,
-        embedding_size,
-        input_length=max_length,
-        weights=[embedding_weights],
+        embedding_meta['max_vocab']+1,
+        embedding_meta['embedding_size'],
+        input_length=embedding_meta['max_len'],
+        weights=[embedding_meta['embedding_mat']],
         name='layer_shared_embedding',
+        trainable=False)
+    layer_shared_embedding_dist = Embedding(
+        embedding_meta_dist['max_vocab']+1,
+        embedding_meta_dist['embedding_size'],
+        input_length=embedding_meta_dist['max_len'],
+        weights=[embedding_meta_dist['embedding_mat']],
+        name='layer_shared_embedding_dist',
         trainable=False)
 
     # embedding encoding layer
     layer_encoding_embedding = layer_shared_embedding(layer_input_seq)
+    layer_encoding_embedding_dist = layer_shared_embedding_dist(layer_input_seq)
+
+    layer_encoding_embedding = concatenate(
+        [layer_encoding_embedding,
+         layer_encoding_embedding_dist])
 
     # GRU encoding layer 0
+    # ***********
     layer_gru_encoding_0 = Bidirectional(GRU(
         64, return_sequences=True))
     layer_encoding = layer_gru_encoding_0(layer_encoding_embedding)
@@ -231,7 +243,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 
     # GRU encoding layer 2
     layer_gru_encoding_2 = Bidirectional(GRU(
-        embedding_size, return_sequences=True))
+        256, return_sequences=True))
     layer_encoding = layer_gru_encoding_2(layer_encoding)
     layer_encoding = LayerNormalization()(layer_encoding)
 
@@ -274,18 +286,18 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 if __name__ == '__main__':
     # 全局化的参数
     # ---------------------
-    IS_DEBUG = True
+    IS_DEBUG = False
 
     MAX_VOCAB_SIZE = 110000
     MAX_SENTENCE_LENGTH = 350
 
     N_FOLDS = 5
     MODEL_LR = 0.0007
-    N_EPOCHS = 2
+    N_EPOCHS = 128
     BATCH_SIZE = 256
-    EARLY_STOP_ROUNDS = 10
+    EARLY_STOP_ROUNDS = 11
     IS_SEND_TO_DINGTALK = False
-    MODEL_NAME = 'lstm_rtx3090'
+    MODEL_NAME = 'lstm_quadro_p5000'
 
     IS_TRAIN_FROM_CKPT = False
     CKPT_DIR = './ckpt/'
@@ -326,6 +338,9 @@ if __name__ == '__main__':
     sg_model = file_processor.load_data(
         dir_name='./pretraining_models/',
         file_name='skip_gram_model.pkl')
+    total_dist_model = file_processor.load_data(
+        dir_name='./cached_data/',
+        file_name='total_dist_dict.pkl')
 
     vocab2vec = {}
     vocab_list = list(cbow_model.wv.key_to_index.keys())
@@ -337,6 +352,10 @@ if __name__ == '__main__':
 
         if 'feat_dim' not in vocab2vec:
             vocab2vec['feat_dim'] = len(vocab2vec[word])
+
+    distvocab2vec = total_dist_model
+    distvocab2vec['feat_dim'] = len(
+        distvocab2vec[list(distvocab2vec.keys())[0]])
 
     # 切分训练与测试数据
     # ***********
@@ -355,12 +374,20 @@ if __name__ == '__main__':
 
     # 构造pre-training embedding matrix与编码语料
     # ---------------------
-    train_corpus_encoded, test_corpus_encoded, embedding_meta_dict = \
+    _, _, embedding_meta_dict = \
         build_embedding_sequence(
             train_corpus, test_corpus,
             max_vocab_size=MAX_VOCAB_SIZE,
             max_sequence_length=MAX_SENTENCE_LENGTH,
             word2embedding=vocab2vec
+        )
+
+    train_corpus_encoded, test_corpus_encoded, embedding_meta_dist_dict = \
+        build_embedding_sequence(
+            train_corpus, test_corpus,
+            max_vocab_size=MAX_VOCAB_SIZE,
+            max_sequence_length=MAX_SENTENCE_LENGTH,
+            word2embedding=distvocab2vec
         )
 
     # 准备训练数据与训练模型
@@ -394,7 +421,7 @@ if __name__ == '__main__':
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_auc',
         factor=0.7,
-        patience=6,
+        patience=3,
         min_lr=0.000003)
 
     # Training the NN Classifier
@@ -417,10 +444,8 @@ if __name__ == '__main__':
         # 构造与编译模型
         # ***********
         model = build_model(
-            vocab_size=embedding_meta_dict['max_vocab'],
-            embedding_size=embedding_meta_dict['embedding_size'],
-            max_length=embedding_meta_dict['max_len'],
-            embedding_weights=embedding_meta_dict['embedding_mat'],
+            embedding_meta=embedding_meta_dict,
+            embedding_meta_dist=embedding_meta_dict,
             feat_dim=d_train_feats.shape[1],
             model_lr=MODEL_LR)
 
