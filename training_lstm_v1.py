@@ -294,7 +294,7 @@ if __name__ == '__main__':
     N_FOLDS = 5
     MODEL_LR = 0.0007
     N_EPOCHS = 128
-    BATCH_SIZE = 256
+    BATCH_SIZE = 512
     EARLY_STOP_ROUNDS = 11
     IS_SEND_TO_DINGTALK = False
     MODEL_NAME = 'lstm_quadro_p5000'

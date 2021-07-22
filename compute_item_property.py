@@ -37,10 +37,6 @@ if __name__ == '__main__':
     # 读入原始的训练与测试数据
     # -------------------------
     file_processor = LoadSave(dir_name='./cached_data/')
-    total_df = file_processor.load_data(file_name='total_df.pkl')
-    total_df.fillna(-1, axis=1, inplace=True)
-    total_targid_list = file_processor.load_data(
-        file_name='total_targid_list.pkl')
 
     if IS_DEBUG:
         total_df = file_processor.load_data(
@@ -57,6 +53,7 @@ if __name__ == '__main__':
             file_name='total_df.pkl')
         total_targid_list = file_processor.load_data(
             file_name='total_targid_list.pkl')
+    total_df.fillna(-1, axis=1, inplace=True)
 
     # seq processing
     for i in range(len(total_targid_list)):
@@ -144,16 +141,15 @@ if __name__ == '__main__':
     print('[INFO] {} model processing end...'.format(
         str(datetime.now())[:-7]))
 
-    '''
     # item to label分布特征
     # *****************
-    print('[INFO] {} age processing...'.format(
+    print('[INFO] {} LABEL processing...'.format(
         str(datetime.now())[:-7]))
     print('****************')
 
     encoder = OneHotEncoder(sparse=False)
     tmp_feat_mat = encoder.fit_transform(
-        total_df['age'].values.reshape(-1, 1))
+        total_df['label'].values.reshape(-1, 1))
 
     for idx, seq in tqdm(enumerate(total_targid_list), total=len(total_targid_list)):
         for item in seq:
@@ -168,9 +164,8 @@ if __name__ == '__main__':
              item_meta_dist_tmp[key] / np.sum(item_meta_dist_tmp[key])])
 
     print('****************')
-    print('[INFO] {} age processing end...'.format(
+    print('[INFO] {} LABEL processing end...'.format(
         str(datetime.now())[:-7]))
-    '''
 
     # 保存分布特性字典
     # -------------------------
