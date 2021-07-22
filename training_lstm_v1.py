@@ -229,23 +229,17 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # GRU encoding layer 0
     # ***********
     layer_gru_encoding_0 = Bidirectional(GRU(
-        64, return_sequences=True))
+        256, return_sequences=True))
     layer_encoding = layer_gru_encoding_0(layer_encoding_embedding)
     layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.3)(layer_encoding)
+    layer_encoding = SpatialDropout1D(0.4)(layer_encoding)
 
     # GRU encoding layer 1
     layer_gru_encoding_1 = Bidirectional(GRU(
         128, return_sequences=True))
     layer_encoding = layer_gru_encoding_1(layer_encoding)
     layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.3)(layer_encoding)
-
-    # GRU encoding layer 2
-    layer_gru_encoding_2 = Bidirectional(GRU(
-        256, return_sequences=True))
-    layer_encoding = layer_gru_encoding_2(layer_encoding)
-    layer_encoding = LayerNormalization()(layer_encoding)
+    layer_encoding = SpatialDropout1D(0.4)(layer_encoding)
 
     # Residual connection
     layer_encoding_concat = concatenate(

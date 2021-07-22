@@ -140,7 +140,59 @@ if __name__ == '__main__':
     print('****************')
     print('[INFO] {} model processing end...'.format(
         str(datetime.now())[:-7]))
+    '''
+    # item to province分布特征
+    # *****************
+    print('[INFO] {} province processing...'.format(
+        str(datetime.now())[:-7]))
+    print('****************')
 
+    encoder = OneHotEncoder(sparse=False)
+    tmp_feat_mat = encoder.fit_transform(
+        total_df['province'].values.reshape(-1, 1))
+
+    for idx, seq in tqdm(enumerate(total_targid_list), total=len(total_targid_list)):
+        for item in seq:
+            if item not in item_meta_dist_tmp:
+                item_meta_dist_tmp[item] = tmp_feat_mat[idx]
+            else:
+                item_meta_dist_tmp[item] = tmp_feat_mat[idx]
+
+    for key in item_meta_dist.keys():
+        item_meta_dist[key] = np.concatenate(
+            [item_meta_dist[key],
+             item_meta_dist_tmp[key] / np.sum(item_meta_dist_tmp[key])])
+
+    print('****************')
+    print('[INFO] {} province processing end...'.format(
+        str(datetime.now())[:-7]))
+
+    # item to make分布特征
+    # *****************
+    print('[INFO] {} make processing...'.format(
+        str(datetime.now())[:-7]))
+    print('****************')
+
+    encoder = OneHotEncoder(sparse=False)
+    tmp_feat_mat = encoder.fit_transform(
+        total_df['make'].values.reshape(-1, 1))
+
+    for idx, seq in tqdm(enumerate(total_targid_list), total=len(total_targid_list)):
+        for item in seq:
+            if item not in item_meta_dist_tmp:
+                item_meta_dist_tmp[item] = tmp_feat_mat[idx]
+            else:
+                item_meta_dist_tmp[item] = tmp_feat_mat[idx]
+
+    for key in item_meta_dist.keys():
+        item_meta_dist[key] = np.concatenate(
+            [item_meta_dist[key],
+             item_meta_dist_tmp[key] / np.sum(item_meta_dist_tmp[key])])
+
+    print('****************')
+    print('[INFO] {} province make end...'.format(
+        str(datetime.now())[:-7]))
+    '''
     # item to label分布特征
     # *****************
     print('[INFO] {} LABEL processing...'.format(
