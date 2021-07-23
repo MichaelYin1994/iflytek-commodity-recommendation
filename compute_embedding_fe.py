@@ -35,28 +35,6 @@ warnings.filterwarnings('ignore')
 sns.set(style='ticks', font_scale=1.2, palette='deep', color_codes=True)
 ###############################################################################
 
-@njit
-def njit_compute_stat_feats(input_array=None):
-    '''计算输入的array的一系列统计特征'''
-    if len(input_array) == 1:
-        return np.zeros((1, 2))
-    stat_feats = np.zeros((1, 2))
-
-    time_diff_array = input_array[1:] - input_array[:-1]
-    stat_feats[0, 0] = np.mean(time_diff_array)
-    stat_feats[0, 1] = np.std(time_diff_array)
-    stat_feats[0, 2] = np.min(time_diff_array)
-    stat_feats[0, 3] = np.max(time_diff_array)
-    stat_feats[0, 4] = np.median(time_diff_array)
-
-    return stat_feats
-
-
-def comput_list_stat_feats(input_list=None):
-    '''接口方法，将input_list转为array'''
-    array_list = np.array(input_list)
-    return njit_compute_stat_feats(array_list)
-
 
 def compute_sg_embedding(corpus=None, is_save_model=True,
                          model_name='skip_gram_model',
@@ -122,20 +100,6 @@ def compute_cbow_embedding(corpus=None, is_save_model=True,
     return model
 
 
-def compute_tfidf_feats(corpus=None, max_feats=100, ngram_range=None):
-    '''计算稀疏形式的TF-IDF特征'''
-    if ngram_range is None:
-        ngram_range = (1, 1)
-
-    vectorizer = TfidfVectorizer(use_idf=True, smooth_idf=True, norm='l2',
-                                 max_features=max_feats, max_df=1.0,
-                                 analyzer='word', ngram_range=ngram_range,
-                                 token_pattern=r'(?u)\b\w+\b')
-    tfidf_array = vectorizer.fit_transform(corpus)
-
-    return tfidf_array, vectorizer
-
-
 def compute_embedding(corpus, word2vec, embedding_size):
     '''将句子转化为embedding vector'''
     embedding_mat = np.zeros((len(corpus), embedding_size))
@@ -166,28 +130,8 @@ if __name__ == '__main__':
     total_timestamp_list = file_processor.load_data(
         file_name='total_timestamp_list.pkl')
 
-    total_feat_mat = None
-
-    # 读入原始的训练与测试数据
-    # -------------------------
-    tmp_feat_list = list(map(comput_list_stat_feats, total_timestamp_list))
-    tmp_feat_array = np.vstack(tmp_feat_list)
-    tmp_feat_array = tmp_feat_array / 1000 / 3600
-
-    if total_feat_mat is None:
-        total_feat_mat = csr_matrix(tmp_feat_array)
-
     # targid特征抽取部分
     # -------------------------
-
-    # TF-IDF
-    # *****************
-    for i in range(len(total_targid_list)):
-        total_targid_list[i] = [str(item) for item in total_targid_list[i]]
-        total_targid_list[i] = ' '.join(total_targid_list[i])
-    tmp_feat_sp_array, encoder = compute_tfidf_feats(
-        total_targid_list, max_feats=TFIDF_DIM)
-    total_feat_mat = hstack([total_feat_mat, tmp_feat_sp_array]).tocsr()
 
     # word2vec embedding
     # *****************
@@ -224,9 +168,9 @@ if __name__ == '__main__':
         total_targid_list, sg_model.wv, EMBEDDING_DIM)
     sg_embedding_mat = csr_matrix(sg_embedding_mat)
 
-    # # Spare matrix
-    # total_feat_mat = hstack(
-    #     [total_feat_mat, cbow_embedding_mat, sg_embedding_mat]).tocsr()
+    # Spare matrix
+    total_feat_mat = hstack(
+        [cbow_embedding_mat, sg_embedding_mat]).tocsr()
 
     # 存储Embedding特征工程结果
     # -------------------------

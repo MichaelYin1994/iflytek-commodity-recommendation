@@ -43,7 +43,7 @@ GLOBAL_RANDOM_SEED = 1995
 warnings.filterwarnings('ignore')
 
 TASK_NAME = 'iflytek_commodity_recommendation_2021'
-GPU_ID = 1
+GPU_ID = 0
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -183,6 +183,7 @@ def build_embedding_sequence(train_corpus=None, test_corpus=None,
 
 def build_model(verbose=False, is_compile=True, **kwargs):
     '''构造Enhanced LSTM模型。'''
+
     # 基础参数
     # --------------------------------
     embedding_meta = kwargs.pop('embedding_meta', None)
@@ -200,7 +201,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # Dense feature transformation
     layer_dense_feats = BatchNormalization()(layer_input_dense_feats)
     layer_dense_feats = Dense(64, activation='relu')(layer_dense_feats)
-    layer_dense_feats = Dropout(0.5)(layer_dense_feats)
+    layer_dense_feats = Dropout(0.3)(layer_dense_feats)
 
     # Shared pre-training embedding layer
     layer_shared_embedding = Embedding(
@@ -228,20 +229,20 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 
     # LSTM encoding layer 0
     # ***********
-    layer_gru_encoding_0 = Bidirectional(LSTM(
+    layer_encoding_0 = Bidirectional(LSTM(
         256, return_sequences=True))
-    layer_encoding = layer_gru_encoding_0(layer_encoding_embedding)
+    layer_encoding = layer_encoding_0(layer_encoding_embedding)
     layer_encoding = LayerNormalization()(layer_encoding)
     layer_encoding = SpatialDropout1D(0.5)(layer_encoding)
 
-    # LSTM encoding layer 1
-    layer_gru_encoding_1 = Bidirectional(LSTM(
+    layer_encoding_1 = Bidirectional(LSTM(
         256, return_sequences=True))
-    layer_encoding = layer_gru_encoding_1(layer_encoding)
+    layer_encoding = layer_encoding_1(layer_encoding)
     layer_encoding = LayerNormalization()(layer_encoding)
     layer_encoding = SpatialDropout1D(0.5)(layer_encoding)
 
     # Residual connection
+    # ***********
     layer_encoding_concat = concatenate(
         [layer_encoding_embedding, layer_encoding])
 
@@ -270,7 +271,8 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 
     if is_compile:
         model.compile(
-            loss='binary_crossentropy',
+            loss=tf.keras.losses.CategoricalCrossentropy(
+                label_smoothing=0),
             optimizer=Adam(model_lr),
             metrics=[tf.keras.metrics.AUC(num_thresholds=1500)])
 
@@ -286,10 +288,10 @@ if __name__ == '__main__':
     MAX_SENTENCE_LENGTH = 350
 
     N_FOLDS = 5
-    MODEL_LR = 0.0007
+    MODEL_LR = 0.0002
     N_EPOCHS = 128
     BATCH_SIZE = 512
-    EARLY_STOP_ROUNDS = 11
+    EARLY_STOP_ROUNDS = 7
     IS_SEND_TO_DINGTALK = False
     MODEL_NAME = 'lstm_attention_rtx3090'
 
@@ -309,7 +311,7 @@ if __name__ == '__main__':
         sampled_idx = list(total_df.index)
 
         total_feats = file_processor.load_data(
-            file_name='total_sp_embedding_mat.pkl')
+            file_name='total_sp_stat_mat.pkl')
         total_targid_list = file_processor.load_data(
             file_name='total_targid_list.pkl')
 
@@ -320,7 +322,7 @@ if __name__ == '__main__':
         total_df = file_processor.load_data(
             file_name='total_df.pkl')
         total_feats = file_processor.load_data(
-            file_name='total_sp_embedding_mat.pkl')
+            file_name='total_sp_stat_mat.pkl')
         total_targid_list = file_processor.load_data(
             file_name='total_targid_list.pkl')
 
@@ -414,8 +416,8 @@ if __name__ == '__main__':
         is_send_msg=IS_SEND_TO_DINGTALK, model_name=MODEL_NAME)
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_auc',
-        factor=0.7,
-        patience=3,
+        factor=0.5,
+        patience=2,
         min_lr=0.000003)
 
     # Training the NN Classifier
