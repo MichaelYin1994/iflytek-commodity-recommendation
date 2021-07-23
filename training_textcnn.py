@@ -1,7 +1,7 @@
 #!/usr/local/bin python
 # -*- coding: utf-8 -*-
 
-# Created on 202107220155
+# Created on 202107232255
 # Author:     zhuoyin94 <zhuoyin94@163.com>
 # Github:     https://github.com/MichaelYin1994
 
@@ -23,7 +23,7 @@ from sklearn.model_selection import KFold
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.layers import (LSTM, GRU, BatchNormalization, Bidirectional,
                                      Dense, Dot, Dropout, Embedding,
-                                     GlobalAveragePooling1D, Add, Lambda, Activation,
+                                     GlobalAveragePooling1D,
                                      GlobalMaxPooling1D, Input, LayerNormalization,
                                      SpatialDropout1D, concatenate, multiply,
                                      subtract)
@@ -181,52 +181,6 @@ def build_embedding_sequence(train_corpus=None, test_corpus=None,
     return train_corpus_encoded, test_corpus_encoded, embedding_meta
 
 
-class ScaledDotProductAttention():
-    """Scaled-Dot-Product注意力机制，计算给定q, k, v之间的注意力权重。
-
-    @Parameters:
-    ----------
-    attn_dropout: {float-like}
-        注意力的dropout值.
-    q, k, v: {tensor-like}
-        Query, Key and Value 张量.
-        q shape --- (batch_size, len_q, hidden_dim_q)
-        k shape --- (batch_size, len_q, hidden_dim_q)
-        v shape --- (batch_size, len_q, hidden_dim_k)
-
-    @Return:
-    ----------
-    注意力权重与依据权重加权求和的Values向量。
-    """
-    def __init__(self, atten_dropout_rate=0.1):
-        self.dropout = Dropout(atten_dropout_rate)
-
-    def __call__(self, q, k, v, mask=None):
-        """q, k, v 代表了论文[2]中的Query, Key, Value"""
-        sqrt_d_k = tf.sqrt(tf.cast(k.shape[-1], dtype="float32"))
-
-        # The dot-product of Query vectors and Key vectors
-        # q: (batch_size, len_q, d_q)
-        # k: (batch_size, len_q, d_q == d_k)
-        # atten: (batch_size, len_q, len_q)
-        atten = tf.matmul(q, k, transpose_b=True)
-        atten = atten / sqrt_d_k
-        # atten = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]) / sqrt_d_k)([q, k])
-        if mask is not None:
-            mmask = Lambda(lambda x:(-1e+9) * (1.-K.cast(x, "float32")))(mask)
-            atten = Add()([atten, mmask])
-
-        # Normal the attention weights
-        atten = Activation("softmax")(atten)
-        atten = self.dropout(atten)
-
-        # Weighted sum of Value vectors
-        # v: (batch_size, len_q, d_k)
-        # atten: (batch_size, len_q, len_q)
-        outputs = Lambda(lambda x: K.batch_dot(x[0], x[1]))([atten, v])
-        return outputs, atten
-
-
 def build_model(verbose=False, is_compile=True, **kwargs):
     '''构造Enhanced LSTM模型。'''
     # 基础参数
@@ -287,9 +241,6 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     layer_encoding = LayerNormalization()(layer_encoding)
     layer_encoding = SpatialDropout1D(0.4)(layer_encoding)
 
-    _, layer_encoding = ScaledDotProductAttention()(
-        layer_encoding, layer_encoding, layer_encoding)
-
     # Residual connection
     layer_encoding_concat = concatenate(
         [layer_encoding_embedding, layer_encoding])
@@ -340,7 +291,7 @@ if __name__ == '__main__':
     BATCH_SIZE = 512
     EARLY_STOP_ROUNDS = 11
     IS_SEND_TO_DINGTALK = False
-    MODEL_NAME = 'lstm_attention_rtx3090'
+    MODEL_NAME = 'lstm_quadro_p5000'
 
     IS_TRAIN_FROM_CKPT = False
     CKPT_DIR = './ckpt/'
