@@ -21,12 +21,7 @@ import tensorflow.keras.backend as K
 from sklearn.metrics import roc_auc_score, f1_score
 from sklearn.model_selection import KFold
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.layers import (LSTM, GRU, BatchNormalization, Bidirectional,
-                                     Dense, Dot, Dropout, Embedding,
-                                     GlobalAveragePooling1D,
-                                     GlobalMaxPooling1D, Input, LayerNormalization,
-                                     SpatialDropout1D, concatenate, multiply,
-                                     subtract)
+from tensorflow.keras import layers
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -194,23 +189,23 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # --------------------------------
     # 构建输入层
     # ***********
-    layer_input_seq = Input(shape=(embedding_meta['max_len'], ))
-    layer_input_dense_feats = Input(shape=(feat_dim, ))
+    layer_input_seq = layers.Input(shape=(embedding_meta['max_len'], ))
+    layer_input_dense_feats = layers.Input(shape=(feat_dim, ))
 
     # Dense feature transformation
-    layer_dense_feats = BatchNormalization()(layer_input_dense_feats)
-    layer_dense_feats = Dense(64, activation='relu')(layer_dense_feats)
-    layer_dense_feats = Dropout(0.5)(layer_dense_feats)
+    layer_dense_feats = layers.BatchNormalization()(layer_input_dense_feats)
+    layer_dense_feats = layers.Dense(64, activation='relu')(layer_dense_feats)
+    layer_dense_feats = layers.Dropout(0.5)(layer_dense_feats)
 
     # Shared pre-training embedding layer
-    layer_shared_embedding = Embedding(
+    layer_shared_embedding = layers.Embedding(
         embedding_meta['max_vocab']+1,
         embedding_meta['embedding_size'],
         input_length=embedding_meta['max_len'],
         weights=[embedding_meta['embedding_mat']],
         name='layer_shared_embedding',
         trainable=False)
-    layer_shared_embedding_dist = Embedding(
+    layer_shared_embedding_dist = layers.Embedding(
         embedding_meta_dist['max_vocab']+1,
         embedding_meta_dist['embedding_size'],
         input_length=embedding_meta_dist['max_len'],
@@ -218,47 +213,76 @@ def build_model(verbose=False, is_compile=True, **kwargs):
         name='layer_shared_embedding_dist',
         trainable=False)
 
-    # embedding encoding layer
+    # Token Embedding
     layer_encoding_embedding = layer_shared_embedding(layer_input_seq)
     layer_encoding_embedding_dist = layer_shared_embedding_dist(layer_input_seq)
 
-    layer_encoding_embedding = concatenate(
+    layer_encoding_embedding = layers.concatenate(
         [layer_encoding_embedding,
          layer_encoding_embedding_dist])
 
-    # GRU encoding layer 0
+    # Conv1D encoding layer
     # ***********
-    layer_gru_encoding_0 = Bidirectional(GRU(
-        256, return_sequences=True))
-    layer_encoding = layer_gru_encoding_0(layer_encoding_embedding)
-    layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.4)(layer_encoding)
+    def block_reset_conv1d(seq, filters, kernel_size):
+        '''Resnet-like CONV-1D block.'''
+        x = layers.Conv1D(
+            filters, 1, padding='same',
+            activation='relu'
+        )(seq)
+        x = layers.LayerNormalization()(x)
 
-    # GRU encoding layer 1
-    layer_gru_encoding_1 = Bidirectional(GRU(
-        128, return_sequences=True))
-    layer_encoding = layer_gru_encoding_1(layer_encoding)
-    layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.4)(layer_encoding)
+        x = layers.Conv1D(
+            filters, kernel_size,
+            padding='same', activation='relu'
+        )(x)
+        x = layers.LayerNormalization()(x)
 
-    # Residual connection
-    layer_encoding_concat = concatenate(
-        [layer_encoding_embedding, layer_encoding])
+        x = layers.Conv1D(
+            filters, 1, padding='same',
+            activation='relu'
+        )(x)
+        x = layers.LayerNormalization()(x)
+
+        seq = layers.Conv1D(filters, 1, padding='same')(seq)
+        seq = layers.Add()([seq, x])
+        return seq
+
+    def base_block(seq, filters=128, kernel_size=5):
+        '''Cascading CONV-1D blocks.'''
+        # STEP 1: Resnet-like CONV-1D block.
+        seq = block_reset_conv1d(seq, filters, kernel_size)
+
+        # STEP 2: CONV-1D Pooling.
+        seq = layers.MaxPooling1D(2)(seq)
+        seq = layers.SpatialDropout1D(0.3)(seq)
+
+        # STEP 3: Resnet-like CONV-1D block.
+        seq = block_reset_conv1d(seq, filters//2, kernel_size)
+        seq = layers.GlobalAveragePooling1D()(seq)
+
+        return seq
+
+    layer_conv_feats = []
+    for kernel_size in [3, 5, 10, 20, 50]:
+        layer_conv_feats.append(
+            base_block(layer_encoding_embedding, kernel_size=kernel_size)
+        )
 
     # 组合，构建分类层
-    layer_feat_concat = concatenate(
-        [GlobalAveragePooling1D()(layer_encoding_concat),
-         GlobalMaxPooling1D()(layer_encoding_concat),
-         layer_dense_feats])
+    # ***********
+    layer_feat_concat = layers.concatenate(
+        [layers.GlobalAveragePooling1D()(layer_encoding_embedding),
+         layers.GlobalMaxPooling1D()(layer_encoding_embedding),
+         layer_dense_feats] + layer_conv_feats)
 
-    layer_total_feat = BatchNormalization()(layer_feat_concat)
-    layer_total_feat = Dropout(0.5)(layer_total_feat)
-    layer_total_feat = Dense(128, activation='relu')(layer_total_feat)
+    layer_total_feat = layers.BatchNormalization()(layer_feat_concat)
+    layer_total_feat = layers.Dropout(0.5)(layer_total_feat)
+    layer_total_feat = layers.Dense(128, activation='relu')(layer_total_feat)
 
-    layer_total_feat = BatchNormalization()(layer_total_feat)
-    layer_total_feat = Dropout(0.5)(layer_total_feat)
+    layer_total_feat = layers.BatchNormalization()(layer_total_feat)
+    layer_total_feat = layers.Dropout(0.5)(layer_total_feat)
 
-    layer_output = Dense(2, activation='softmax')(layer_total_feat)
+    layer_output = layers.Dense(2, activation='softmax')(layer_total_feat)
 
     # 编译模型
     # --------------------------------
@@ -286,7 +310,7 @@ if __name__ == '__main__':
     MAX_SENTENCE_LENGTH = 350
 
     N_FOLDS = 5
-    MODEL_LR = 0.0007
+    MODEL_LR = 0.0005
     N_EPOCHS = 128
     BATCH_SIZE = 512
     EARLY_STOP_ROUNDS = 11
