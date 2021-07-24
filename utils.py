@@ -555,9 +555,11 @@ class LiteModel:
         return out[0]
 
 
-@njit
+# @njit
 def njit_f1(y_true, y_pred_proba, threshold):
     '''计算F1分数，使用@njit进行加速'''
+    y_true = y_true[:, 1]
+    y_pred_proba = y_pred_proba[:, 1]
     y_pred_label = np.where(y_pred_proba > threshold, 1, 0)
 
     # https://www.itread01.com/content/1544007604.html

@@ -35,7 +35,7 @@ from tensorflow.keras.utils import to_categorical
 from tqdm import tqdm
 
 from dingtalk_remote_monitor import RemoteMonitorDingTalk, send_msg_to_dingtalk
-from utils import GensimCallback, LoadSave
+from utils import GensimCallback, LoadSave, njit_f1
 
 GLOBAL_RANDOM_SEED = 1995
 # np.random.seed(GLOBAL_RANDOM_SEED)
@@ -43,7 +43,7 @@ GLOBAL_RANDOM_SEED = 1995
 warnings.filterwarnings('ignore')
 
 TASK_NAME = 'iflytek_commodity_recommendation_2021'
-GPU_ID = 0
+GPU_ID = 5
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -181,6 +181,10 @@ def build_embedding_sequence(train_corpus=None, test_corpus=None,
     return train_corpus_encoded, test_corpus_encoded, embedding_meta
 
 
+def tf_f1_score(y_true, y_pred):
+    return tf.py_function(njit_f1, (y_true, y_pred, 0.5), tf.double)
+
+
 def build_model(verbose=False, is_compile=True, **kwargs):
     '''构造Enhanced LSTM模型。'''
 
@@ -288,12 +292,12 @@ if __name__ == '__main__':
     MAX_SENTENCE_LENGTH = 350
 
     N_FOLDS = 5
-    MODEL_LR = 0.0002
+    MODEL_LR = 0.0005
     N_EPOCHS = 128
     BATCH_SIZE = 512
     EARLY_STOP_ROUNDS = 7
     IS_SEND_TO_DINGTALK = False
-    MODEL_NAME = 'lstm_attention_rtx3090'
+    MODEL_NAME = 'lstm_rtx3090'
 
     IS_TRAIN_FROM_CKPT = False
     CKPT_DIR = './ckpt/'
@@ -409,15 +413,15 @@ if __name__ == '__main__':
     train_target_oht = to_categorical(train_target)
 
     early_stop = EarlyStopping(
-        monitor='val_auc', mode='max',
+        monitor='val_tf_f1_score', mode='max',
         verbose=1, patience=EARLY_STOP_ROUNDS,
         restore_best_weights=True)
     remote_monitor = RemoteMonitorDingTalk(
         is_send_msg=IS_SEND_TO_DINGTALK, model_name=MODEL_NAME)
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_auc',
-        factor=0.5,
-        patience=2,
+        monitor='val_tf_f1_score',
+        factor=0.7,
+        patience=3,
         min_lr=0.000003)
 
     # Training the NN Classifier
