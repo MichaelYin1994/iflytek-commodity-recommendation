@@ -557,8 +557,9 @@ if __name__ == '__main__':
 
     # 保存预测的结果
     # -------------------------
-    sub_file_name = '{}_lstm_nfolds_{}_valrocauc_{}_valf1_{}'.format(
+    sub_file_name = '{}_{}_nfolds_{}_valrocauc_{}_valf1_{}'.format(
         len(os.listdir('./submissions/')) + 1,
+        MODEL_NAME,
         N_FOLDS,
         str(np.round(val_scores_df['valid_roc_auc'].mean(), 5))[2:],
         str(np.round(val_scores_df['valid_f1'].mean(), 5))[2:])

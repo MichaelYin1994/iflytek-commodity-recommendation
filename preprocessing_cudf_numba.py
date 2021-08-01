@@ -1,21 +1,22 @@
 #!/usr/local/bin python
 # -*- coding: utf-8 -*-
 
-# Created on 202107170104
+# Created on 202107291535
 # Author:     zhuoyin94 <zhuoyin94@163.com>
 # Github:     https://github.com/MichaelYin1994
 
 '''
-本模块(preprocessing.py)对原始的*.txt数据进行预处理。
+本模块(preprocessing_cudf_numba.py)对原始的*.txt数据进行预处理。不同的是，
+本模块基于cuDF与numba进行高效的DataFrame的基础信息抽取与基于numba的高效数据预处理。
 '''
-
 import gc
 import os
 import sys
 import warnings
 
-import pandas as pd
+import cudf
 import numpy as np
+from numba import njit
 import seaborn as sns
 from datetime import datetime
 import time
@@ -31,18 +32,44 @@ warnings.filterwarnings('ignore')
 sns.set(style='ticks', font_scale=1.2, palette='deep', color_codes=True)
 ###############################################################################
 
-def parse_target_id(str_list=None):
-    '''解析字符串形式的targid的list'''
+@njit
+def njit_parse_target_id(str_list):
+    '''解析字符串形式的targid的list，使用njit进行加速'''
     str_list = str_list[1:-1]
     str_list = str_list.split(',')
-    return [int(i) for i in str_list]
+
+    return str_list
 
 
-def parse_time(str_list=None):
+def parse_target_id(str_list):
+    '''解析字符串形式的targid的list，返回int转换后的结果'''
+    str_list_spllit = njit_parse_target_id(str_list)
+
+    str_array = np.zeros((len(str_list_spllit), ))
+    for i in range(len(str_array)):
+        str_array[i] = int(str_list_spllit[i])
+
+    return str_array
+
+
+@njit
+def njit_parse_time(str_list):
+    '''解析字符串形式的time的list，使用njit加速'''
+    str_list = str_list[1:-1]
+    str_list = str_list.split(',')
+
+    return str_list
+
+
+def parse_time(str_list):
     '''解析字符串形式的time的list'''
-    str_list = str_list[1:-1]
-    str_list = str_list.split(',')
-    return [int(np.float64(i)) for i in str_list]
+    str_list_spllit = njit_parse_time(str_list)
+
+    str_array = np.zeros((len(str_list_spllit), ))
+    for i in range(len(str_array)):
+        str_array[i] = int(np.float64(str_list_spllit[i]))
+
+    return str_array
 
 
 if __name__ == '__main__':
@@ -55,14 +82,14 @@ if __name__ == '__main__':
     TRAIN_PATH = './data/train/'
     TEST_PATH = './data/test/'
 
-    train_df = pd.read_csv(
+    train_df = cudf.read_csv(
         TRAIN_PATH+'train.txt', header=None, nrows=NROWS,
         names=['pid', 'label',
                'gender', 'age',
                'targid', 'time',
                'province', 'city',
                'model', 'make'])
-    test_df = pd.read_csv(
+    test_df = cudf.read_csv(
         TEST_PATH+'apply_new.txt', header=None, nrows=NROWS,
         names=['pid', 'gender',
                'age', 'targid',
@@ -74,7 +101,7 @@ if __name__ == '__main__':
     print('[INFO] took {} loading end...'.format(
         np.round(curr_time - start_time, 10)))
 
-    total_df = pd.concat([train_df, test_df], axis=0, ignore_index=True)
+    total_df = cudf.concat([train_df, test_df], axis=0, ignore_index=True)
     del train_df, test_df
     gc.collect()
 
@@ -84,11 +111,11 @@ if __name__ == '__main__':
     # *****************
     start_time = time.time()
 
-    total_df['make'] = total_df['make'].apply(lambda x: x.split(' ')[-1])
+    total_df['make'] = total_df['make'].str.split(' ').list.get(-1)
 
     for feat_name in ['province', 'city', 'model', 'make']:
         encoder = LabelEncoder()
-        total_df[feat_name] = encoder.fit_transform(total_df[feat_name].values)
+        total_df[feat_name] = encoder.fit_transform(total_df[feat_name].to_array())
 
     curr_time = time.time()
     print('[INFO] took {} oht encoding end...'.format(
@@ -98,10 +125,12 @@ if __name__ == '__main__':
     # *****************
     start_time = time.time()
 
-    total_targid_list = total_df['targid'].apply(
-        parse_target_id).values.tolist()
-    total_timestamp_list = total_df['time'].apply(
-        parse_time).values.tolist()
+    total_targid_list = total_df['targid'].to_array().tolist()
+    total_targid_list = list(map(parse_target_id, total_targid_list))
+
+    total_timestamp_list = total_df['time'].to_array().tolist()
+    total_timestamp_list = list(map(parse_time, total_timestamp_list))
+
     timestamp_argidx = [np.argsort(item) for item in total_timestamp_list]
 
     unmatch_idx = 0
@@ -127,7 +156,7 @@ if __name__ == '__main__':
 
     train_df = total_df[total_df['label'].notnull()].reset_index(drop=True)
     test_df = total_df[total_df['label'].isnull()].reset_index(drop=True)
-    total_df.fillna(-1, axis=1, inplace=True)
+    total_df.fillna(-1, inplace=True)
 
     curr_time = time.time()
     print('[INFO] took {} train test split processing...'.format(
@@ -142,8 +171,8 @@ if __name__ == '__main__':
         tmp_df = train_df.groupby(feat_name)['label'].count().reset_index()
         tmp_df['label_dist'] = tmp_val
 
-        tmp_df.sort_values(
-            by=['label_dist'], inplace=True, ascending=False)
+        tmp_df = tmp_df.sort_values(
+            by=['label_dist'], ascending=False)
         tmp_df.reset_index(inplace=True, drop=True)
         # print('++++++++++++')
         # print(tmp_df.iloc[:5])
@@ -154,8 +183,8 @@ if __name__ == '__main__':
         tmp_df = train_df.groupby(feat_name)['label'].count().reset_index()
         tmp_df['label_dist'] = tmp_val
 
-        tmp_df.sort_values(
-            by=['label_dist'], inplace=True, ascending=False)
+        tmp_df = tmp_df.sort_values(
+            by=['label_dist'], ascending=False)
         tmp_df.reset_index(inplace=True, drop=True)
         # print('++++++++++++')
         # print(tmp_df.iloc[:5])
