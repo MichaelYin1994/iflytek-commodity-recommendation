@@ -311,7 +311,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
             loss=tf.keras.losses.CategoricalCrossentropy(
                 label_smoothing=0),
             optimizer=Adam(model_lr),
-            metrics=[tf.keras.metrics.AUC(num_thresholds=1500)])
+            metrics=[tf.keras.metrics.AUC(num_thresholds=1500), tf_f1_score])
 
     return model
 
@@ -534,7 +534,7 @@ if __name__ == '__main__':
                 filepath=os.path.join(
                     CKPT_DIR + ckpt_fold_name_tmp,
                     MODEL_NAME + '_epoch_{epoch:02d}_valacc_{val_auc:.3f}.ckpt'),
-                monitor='val_auc',
+                monitor='val_tf_f1_score',
                 mode='max',
                 save_weights_only=True,
                 save_best_only=True),
