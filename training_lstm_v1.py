@@ -186,6 +186,50 @@ def tf_f1_score(y_true, y_pred):
     return tf.py_function(njit_f1, (y_true, y_pred, 0.5), tf.double)
 
 
+class ScaledDotProductAttention():
+    """Scaled-Dot-Product注意力机制，计算给定q, k, v之间的注意力权重。
+    @Parameters:
+    ----------
+    attn_dropout: {float-like}
+        注意力的dropout值.
+    q, k, v: {tensor-like}
+        Query, Key and Value 张量.
+        q shape --- (batch_size, len_q, hidden_dim_q)
+        k shape --- (batch_size, len_q, hidden_dim_q)
+        v shape --- (batch_size, len_q, hidden_dim_k)
+    @Return:
+    ----------
+    注意力权重与依据权重加权求和的Values向量。
+    """
+    def __init__(self, atten_dropout_rate=0.1):
+        self.dropout = tf.keras.layers.Dropout(atten_dropout_rate)
+
+    def __call__(self, q, k, v, mask):
+        """q, k, v 代表了论文[2]中的Query, Key, Value"""
+        sqrt_d_k = tf.sqrt(tf.cast(k.shape[-1], dtype="float32"))
+
+        # The dot-product of Query vectors and Key vectors
+        # q: (batch_size, len_q, d_q)
+        # k: (batch_size, len_q, d_q == d_k)
+        # atten: (batch_size, len_q, len_q)
+        atten = tf.matmul(q, k, transpose_b=True)
+        atten = atten / sqrt_d_k
+        # atten = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=[2, 2]) / sqrt_d_k)([q, k])
+        if mask is not None:
+            mmask = tf.keras.layers.Lambda(lambda x:(-1e+9) * (1.-K.cast(x, "float32")))(mask)
+            atten = tf.keras.layers.Add()([atten, mmask])
+
+        # Normal the attention weights
+        atten = tf.keras.layers.Activation("softmax")(atten)
+        atten = self.dropout(atten)
+
+        # Weighted sum of Value vectors
+        # v: (batch_size, len_q, d_k)
+        # atten: (batch_size, len_q, len_q)
+        outputs = tf.keras.layers.Lambda(lambda x: K.batch_dot(x[0], x[1]))([atten, v])
+        return outputs, atten
+
+
 def build_model(verbose=False, is_compile=True, **kwargs):
     '''构造行为序列分类的LSTM模型。'''
 
@@ -276,6 +320,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     x = LayerNormalization()(x)
     x = SpatialDropout1D(0.4)(x)
 
+    x, x_atten = ScaledDotProductAttention(0.2)(x, x, x, mask=None)
     # Residual connection
     # ***********
     layer_encoding_concat = concatenate(
@@ -319,16 +364,14 @@ def build_model(verbose=False, is_compile=True, **kwargs):
 if __name__ == '__main__':
     # 全局化的参数
     # ---------------------
-    IS_DEBUG = False
-
     MAX_VOCAB_SIZE = 110000
-    MAX_SENTENCE_LENGTH = 350
+    MAX_SENTENCE_LENGTH = 250
 
     N_FOLDS = 5
     MODEL_LR = 0.0005
     N_EPOCHS = 128
     BATCH_SIZE = 512
-    EARLY_STOP_ROUNDS = 7
+    EARLY_STOP_ROUNDS = 4
     IS_SEND_TO_DINGTALK = False
     MODEL_NAME = 'lstm_rtx3090'
 
@@ -342,26 +385,14 @@ if __name__ == '__main__':
 
     # 载入语料与原始数据
     # ***********
-    if IS_DEBUG:
-        total_df = file_processor.load_data(
-            file_name='total_df.pkl').sample(2000)
-        sampled_idx = list(total_df.index)
-
-        total_feats = file_processor.load_data(
-            file_name='total_sp_stat_mat.pkl')
-        total_targid_list = file_processor.load_data(
-            file_name='total_targid_list.pkl')
-
-        total_df.reset_index(drop=True, inplace=True)
-        total_feats = total_feats[sampled_idx]
-        total_targid_list = [total_targid_list[i] for i in sampled_idx]
-    else:
-        total_df = file_processor.load_data(
-            file_name='total_df.pkl')
-        total_feats = file_processor.load_data(
-            file_name='total_sp_stat_mat.pkl')
-        total_targid_list = file_processor.load_data(
-            file_name='total_targid_list.pkl')
+    total_df = file_processor.load_data(
+        file_name='total_df.pkl')
+    total_feats = file_processor.load_data(
+        file_name='total_sp_stat_mat.pkl')
+    total_targid_list = file_processor.load_data(
+        file_name='total_targid_list.pkl')
+    total_timestamp_list = file_processor.load_data(
+        file_name='total_timestamp_list.pkl')
 
     # 载入预训练模型
     # ***********
