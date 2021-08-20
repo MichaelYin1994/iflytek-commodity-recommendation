@@ -81,7 +81,7 @@ def compute_tfidf_feats(corpus=None, max_feats=100, ngram_range=None):
 
 if __name__ == '__main__':
     IS_DEBUG = False
-    TFIDF_DIM = 400
+    TFIDF_DIM = 200
 
     # 读入原始的训练与测试数据
     # -------------------------

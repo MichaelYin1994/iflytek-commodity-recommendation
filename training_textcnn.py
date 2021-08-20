@@ -38,7 +38,7 @@ tf.random.set_seed(GLOBAL_RANDOM_SEED)
 warnings.filterwarnings('ignore')
 
 TASK_NAME = 'iflytek_commodity_recommendation_2021'
-GPU_ID = 1
+GPU_ID = 0
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:

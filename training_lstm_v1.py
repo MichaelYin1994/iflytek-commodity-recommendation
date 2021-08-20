@@ -18,15 +18,16 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras.backend as K
-from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.metrics import f1_score, roc_auc_score
 from sklearn.model_selection import KFold
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.layers import (LSTM, GRU, BatchNormalization, Bidirectional,
-                                     Dense, Dot, Dropout, Embedding,
-                                     GlobalAveragePooling1D, Add, Lambda, Activation,
-                                     GlobalMaxPooling1D, Input, LayerNormalization,
-                                     SpatialDropout1D, concatenate, multiply,
-                                     subtract)
+from tensorflow.keras.layers import (GRU, LSTM, Activation, Add,
+                                     BatchNormalization, Bidirectional, Dense,
+                                     Dot, Dropout, Embedding,
+                                     GlobalAveragePooling1D,
+                                     GlobalMaxPooling1D, Input, Lambda,
+                                     LayerNormalization, SpatialDropout1D,
+                                     concatenate, multiply, subtract)
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -43,7 +44,7 @@ GLOBAL_RANDOM_SEED = 1995
 warnings.filterwarnings('ignore')
 
 TASK_NAME = 'iflytek_commodity_recommendation_2021'
-GPU_ID = 5
+GPU_ID = 0
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -186,42 +187,74 @@ def tf_f1_score(y_true, y_pred):
 
 
 def build_model(verbose=False, is_compile=True, **kwargs):
-    '''构造Enhanced LSTM模型。'''
+    '''构造行为序列分类的LSTM模型。'''
 
     # 基础参数
     # --------------------------------
-    embedding_meta = kwargs.pop('embedding_meta', None)
-    embedding_meta_dist = kwargs.pop('embedding_meta_dist', None)
-    feat_dim = kwargs.pop('feat_dim', 128)
+    embedding_meta_targid = kwargs.pop('embedding_meta_targid', None)
+    embedding_meta_targid_dist = kwargs.pop('embedding_meta_targid_dist', None)
+    embedding_meta_static = kwargs.pop('embedding_meta_static', None)
+    n_dense_feats = kwargs.pop('n_dense_feats', None)
     model_lr = kwargs.pop('model_lr', 0.0001)
 
     # 构造模型
     # --------------------------------
     # 构建输入层
     # ***********
-    layer_input_seq = Input(shape=(embedding_meta['max_len'], ))
-    layer_input_dense_feats = Input(shape=(feat_dim, ))
+    layer_input_seq = Input(shape=(embedding_meta_targid['max_len'], ))
+    layer_input_dense_feats = Input(shape=(n_dense_feats, ))
+
+    layer_input_province = Input(
+        shape=(1, ), name='layer_province_input', dtype='int32'
+    )
+    layer_input_city = Input(
+        shape=(1, ), name='layer_city_input', dtype='int32'
+    )
+    layer_input_model = Input(
+        shape=(1, ), name='layer_model_input', dtype='int32'
+    )
+    layer_input_make = Input(
+        shape=(1, ), name='layer_make_input', dtype='int32'
+    )
 
     # Dense feature transformation
     layer_dense_feats = BatchNormalization()(layer_input_dense_feats)
-    layer_dense_feats = Dense(64, activation='relu')(layer_dense_feats)
+    layer_dense_feats = Dense(128, activation='relu')(layer_dense_feats)
     layer_dense_feats = Dropout(0.3)(layer_dense_feats)
 
     # Shared pre-training embedding layer
+    # ***********
     layer_shared_embedding = Embedding(
-        embedding_meta['max_vocab']+1,
-        embedding_meta['embedding_size'],
-        input_length=embedding_meta['max_len'],
-        weights=[embedding_meta['embedding_mat']],
+        embedding_meta_targid['max_vocab']+1,
+        embedding_meta_targid['embedding_size'],
+        input_length=embedding_meta_targid['max_len'],
+        weights=[embedding_meta_targid['embedding_mat']],
         name='layer_shared_embedding',
         trainable=False)
     layer_shared_embedding_dist = Embedding(
-        embedding_meta_dist['max_vocab']+1,
-        embedding_meta_dist['embedding_size'],
-        input_length=embedding_meta_dist['max_len'],
-        weights=[embedding_meta_dist['embedding_mat']],
+        embedding_meta_targid_dist['max_vocab']+1,
+        embedding_meta_targid_dist['embedding_size'],
+        input_length=embedding_meta_targid_dist['max_len'],
+        weights=[embedding_meta_targid_dist['embedding_mat']],
         name='layer_shared_embedding_dist',
         trainable=False)
+    layer_embedding_province = Embedding(
+        input_dim=embedding_meta_static['n_province'], output_dim=32, input_length=1, 
+    )(layer_input_province)
+    layer_embedding_city = Embedding(
+        input_dim=embedding_meta_static['n_city'], output_dim=32, input_length=1, 
+    )(layer_input_city)
+    layer_embedding_model = Embedding(
+        input_dim=embedding_meta_static['n_model'], output_dim=32, input_length=1, 
+    )(layer_input_model)
+    layer_embedding_make = Embedding(
+        input_dim=embedding_meta_static['n_make'], output_dim=32, input_length=1, 
+    )(layer_input_make)
+    layer_static_embedding = concatenate(
+        [layer_embedding_province, layer_embedding_city,
+         layer_embedding_model, layer_embedding_make]
+    )
+    layer_static_embedding = tf.keras.layers.Flatten()(layer_static_embedding)
 
     # embedding encoding layer
     layer_encoding_embedding = layer_shared_embedding(layer_input_seq)
@@ -231,30 +264,29 @@ def build_model(verbose=False, is_compile=True, **kwargs):
         [layer_encoding_embedding,
          layer_encoding_embedding_dist])
 
-    # LSTM encoding layer 0
+    # LSTM encoding layer x
     # ***********
-    layer_encoding_0 = Bidirectional(LSTM(
-        256, return_sequences=True))
-    layer_encoding = layer_encoding_0(layer_encoding_embedding)
-    layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.5)(layer_encoding)
+    x = Bidirectional(LSTM(
+        256, return_sequences=True))(layer_encoding_embedding)
+    x = LayerNormalization()(x)
+    x = SpatialDropout1D(0.4)(x)
 
-    layer_encoding_1 = Bidirectional(LSTM(
-        256, return_sequences=True))
-    layer_encoding = layer_encoding_1(layer_encoding)
-    layer_encoding = LayerNormalization()(layer_encoding)
-    layer_encoding = SpatialDropout1D(0.5)(layer_encoding)
+    x = Bidirectional(LSTM(
+        256, return_sequences=True))(x)
+    x = LayerNormalization()(x)
+    x = SpatialDropout1D(0.4)(x)
 
     # Residual connection
     # ***********
     layer_encoding_concat = concatenate(
-        [layer_encoding_embedding, layer_encoding])
+        [layer_encoding_embedding, x])
 
     # 组合，构建分类层
     layer_feat_concat = concatenate(
         [GlobalAveragePooling1D()(layer_encoding_concat),
          GlobalMaxPooling1D()(layer_encoding_concat),
-         layer_dense_feats])
+         layer_dense_feats,
+         layer_static_embedding])
 
     layer_total_feat = BatchNormalization()(layer_feat_concat)
     layer_total_feat = Dropout(0.5)(layer_total_feat)
@@ -268,7 +300,8 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     # 编译模型
     # --------------------------------
     model = Model(
-        [layer_input_seq, layer_input_dense_feats], layer_output)
+        [layer_input_seq, layer_input_dense_feats, layer_input_province,
+         layer_input_city, layer_input_model, layer_input_make], layer_output)
 
     if verbose:
         model.summary()
@@ -369,8 +402,26 @@ if __name__ == '__main__':
     train_corpus = [total_targid_list[i] for i in train_idx]
     test_corpus = [total_targid_list[i] for i in test_idx]
 
+    # Dense特征的训练与测试
     train_feats = total_feats[train_idx].todense()
     test_feats = total_feats[test_idx].todense()
+
+    # Meta information特征的训练与测试
+    dist_meta = {}
+    dist_meta['n_province'] = int(total_df['province'].nunique())
+    dist_meta['n_city'] = int(total_df['city'].nunique())
+    dist_meta['n_model'] = int(total_df['model'].nunique())
+    dist_meta['n_make'] = int(total_df['make'].nunique())
+
+    train_feats_province = total_df['province'].values[train_idx]
+    train_feats_city = total_df['city'].values[train_idx]
+    train_feats_model = total_df['model'].values[train_idx]
+    train_feats_make = total_df['make'].values[train_idx]
+
+    test_feats_province = total_df['province'].values[test_idx]
+    test_feats_city = total_df['city'].values[test_idx]
+    test_feats_model = total_df['model'].values[test_idx]
+    test_feats_make = total_df['make'].values[test_idx]
 
     # 构造pre-training embedding matrix与编码语料
     # ---------------------
@@ -439,14 +490,21 @@ if __name__ == '__main__':
         # 划分训练与验证数据
         d_train, d_valid = train_corpus_encoded[tra_id], train_corpus_encoded[val_id]
         d_train_feats, d_valid_feats = train_feats[tra_id], train_feats[val_id]
+
+        d_train_province, d_valid_province = train_feats_province[tra_id], train_feats_province[val_id]
+        d_train_city, d_valid_city = train_feats_city[tra_id], train_feats_city[val_id]
+        d_train_model, d_valid_model = train_feats_model[tra_id], train_feats_model[val_id]
+        d_train_make, d_valid_make = train_feats_make[tra_id], train_feats_make[val_id]
+
         t_train, t_valid = train_target_oht[tra_id], train_target_oht[val_id]
 
         # 构造与编译模型
         # ***********
         model = build_model(
-            embedding_meta=embedding_meta_dict,
-            embedding_meta_dist=embedding_meta_dict,
-            feat_dim=d_train_feats.shape[1],
+            embedding_meta_targid=embedding_meta_dict,
+            embedding_meta_targid_dist=embedding_meta_dist_dict,
+            embedding_meta_static=dist_meta,
+            n_dense_feats=d_train_feats.shape[1],
             model_lr=MODEL_LR)
 
         # 完善ckpt保存机制
@@ -483,22 +541,36 @@ if __name__ == '__main__':
 
         # fitting模型
         # ***********
+        model_train_input = [
+            d_train, d_train_feats, d_train_province,
+            d_train_city, d_train_model, d_train_make
+        ]
+        model_valid_input = [
+            d_valid, d_valid_feats, d_valid_province,
+            d_valid_city, d_valid_model, d_valid_make
+        ]
+        model_test_input = [
+            test_corpus_encoded, test_feats,
+            test_feats_province, test_feats_city,
+            test_feats_model, test_feats_make
+        ]
+
         history = model.fit(
-            x=[d_train, d_train_feats], y=t_train,
+            x=model_train_input, y=t_train,
             batch_size=BATCH_SIZE,
             epochs=N_EPOCHS,
             shuffle=False,
             use_multiprocessing=True,
-            validation_data=([d_valid, d_valid_feats], t_valid),
+            validation_data=(model_valid_input, t_valid),
             callbacks=[early_stop, remote_monitor, reduce_lr, ckpt_saver])
 
         # 构造验证与测试数据预测的结果
         # ***********
-        valid_pred_proba_tmp = model.predict(x=[d_valid, d_valid_feats])
+        valid_pred_proba_tmp = model.predict(x=model_valid_input)
         valid_pred_label_tmp = np.argmax(
             valid_pred_proba_tmp, axis=1).reshape((-1, 1))
 
-        test_pred_proba_tmp = model.predict(x=[test_corpus_encoded, test_feats])
+        test_pred_proba_tmp = model.predict(x=model_test_input)
 
         # 保存验证与测试的预测概率
         valid_pred_proba[val_id] = valid_pred_proba_tmp
